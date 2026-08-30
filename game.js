@@ -245,7 +245,7 @@ function tickTutorial(dt){
   if(tutor.phase==='unlock'){
     tutor.zoomT+=dt; const t=Math.min(1,tutor.zoomT/3.4); cam.zoom=tutor.zoom+(tutor.targetZoom-tutor.zoom)*easeIO(t);
     cam.x=s.x-sw/cam.zoom/2; cam.y=s.y-sh/cam.zoom/2;
-    if(t>=1){ if(!tutor.sub3){ tutor.sub3=true; tutor.postT=0; setSub("看啊，指挥官，我们大本营附近似乎有个很弱小的敌人。<br>消灭它！"); }
+    if(t>=1){ if(!tutor.sub3){ tutor.sub3=true; tutor.postT=0; setSub("看啊，指挥官，我们大本营附近似乎有个很弱小的敌人。<br>消灭它！（鼠标滚轮缩放就可以看到啦！）"); }
       else { tutor.postT+=dt; if(tutor.postT>=3.5){ camLocked=false; tutor=null; hideSub(); return; } } }
   } else {
     cam.zoom=tutor.zoom; cam.x=s.x-sw/cam.zoom/2; cam.y=s.y-sh/cam.zoom/2;
