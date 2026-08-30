@@ -39,7 +39,7 @@
 #sub.alert{color:#ffb1a2;border-color:rgba(255,90,80,.42);background:rgba(30,9,9,.86)}
 </style></head><body>
 <canvas id="cv"></canvas>
-<div id="hint">点我方星球选中 → 再点目标星球 = 派半数兵 | 左上面板：建繁殖树/防御树/种花 | 拖动平移 · 滚轮缩放 · 右键取消</div>
+<div id="hint">点我方星球选中 → 点目标星球派遣 | 左下角面板：建繁殖树/防御树 | 拖动平移 · 滚轮缩放 · 右键取消</div>
 <div id="sub"></div><div id="panel"></div><div id="status"></div><div id="over"></div><div id="err"></div>
 <script>function showErr(m){var e=document.getElementById('err');if(e){e.style.display='block';e.innerHTML='<h2>出错了</h2><p>'+String(m).replace(/</g,'&lt;')+'</p>';}}window.addEventListener('error',ev=>showErr((ev.message||'未知')+(ev.filename?' → '+ev.filename+':'+(ev.lineno||'?'):'')));window.addEventListener('unhandledrejection',ev=>showErr((ev.reason&&(ev.reason.message||ev.reason))||String(ev.reason||'Promise 拒绝')));</script>
 <script src="sound.js"></script><script src="game.js"></script>
