@@ -3,18 +3,18 @@
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
 const dpr=Math.min(devicePixelRatio||1,2);
 const U={ W:3400, H:2300 }, cam={ x:0, y:0, zoom:0.5 };
-const OWNER={0:'#5a646e',1:'#5fbf8f',2:'#c95f8a'}, OWNER_NAME={0:'中立',1:'我方',2:'敌方'};
-const LASER={0:'#9aa4ac',1:'#2ec47a',2:'#ec5c9c'};
+const OWNER={0:'#5a646e',1:'#5fbf8f',2:'#c95f8a',3:'#e08a3a'}, OWNER_NAME={0:'中立',1:'我方',2:'敌方A',3:'敌方B'};
+const LASER={0:'#9aa4ac',1:'#2ec47a',2:'#ec5c9c',3:'#f0a24a'};
 const BAL={ maxTrees:4, treeCost:10, prodInterval:1.8, budTime:20, perSegmentTime:10, treeDepth:5, treeSpread:0.42, treeLen0:20, treeShrink:0.6, budFlySpeed:90, flowerCost:10, flowerInterval:2.6,
-  sendRatio:0.5, seedSpin:0.6, combatRange:40, atkCooldown:0.55, treeHp:22, chaseAng:2.0, treeHit:0.15, convergeSpeed:95, fleetSpeedBase:55, fleetSpeedVar:9,
-  defDmg:1.6, defRate:1.0, dispatchBase:340, dispatchPerSpeed:42 };
-const G={ planets:[], travel:[], lasers:[], sel:null, qty:0, shake:0, over:false, won:false, lastAI:0, time:0 };
+  sendRatio:0.5, seedSpin:0.6, combatRange:40, atkCooldown:2.0, seedSpace:7, orbitSpeed:4, regenRate:4, treeHp:22, chaseAng:2.0, treeHit:0.6, convergeSpeed:95, fleetSpeedBase:55, fleetSpeedVar:9,
+  defDmg:1.6, defRate:1.0, missileInterval:2, missileSpeed:120, defTreeGrow:8, dispatchBase:340, dispatchPerSpeed:42 };
+const G={ planets:[], travel:[], lasers:[], missiles:[], sel:null, qty:0, shake:0, over:false, won:false, lastAI:0, time:0 };
 let rngState=0;
 function rnd(){ rngState=(rngState*1103515245+12345)&0x7fffffff; return rngState/0x7fffffff; }
 function rr(a,b){ return a+(b-a)*rnd(); }
 function reseed(s){ rngState=s; }
-function newSeed(p,owner){ const ang=rnd()*6.283, rad=p.r+6+rnd()*7, spin=BAL.seedSpin*(0.7+rnd()*0.6)*(p.speed*0.06+0.7);
-  return { x:p.x+Math.cos(ang)*rad, y:p.y+Math.sin(ang)*rad, ang, rad, spin, owner, mode:'orbit', tx:0,ty:0, arr:false, landing:false,
+function newSeed(p,owner){ const ang=rnd()*6.283, band=Math.floor(rnd()*5), homeR=p.bands?p.bands[band]:p.r+9, spin=BAL.seedSpin*(0.7+rnd()*0.6)*(p.speed*0.06+0.7);
+  return { x:p.x+Math.cos(ang)*homeR, y:p.y+Math.sin(ang)*homeR, ang, rad:homeR, band, homeR, spin, owner, mode:'orbit', tx:0,ty:0, arr:false, landing:false,
     energy:p.energy, strength:p.strength, spd:p.speed, hp:2*p.energy, attack:p.strength, atkT:0 }; }
 function spawnSeed(p,owner,x,y){ const s=newSeed(p,owner); if(x!==undefined){s.x=x;s.y=y;} p.seedlings.push(s); }
 function present(p,o){ return p.seedlings.filter(s=>s.owner===o&&s.mode==='orbit'); }
@@ -22,25 +22,44 @@ function dispatchRange(p){ return BAL.dispatchBase + p.speed*BAL.dispatchPerSpee
 function inRange(from,to){ return Math.hypot(from.x-to.x,from.y-to.y)<=dispatchRange(from); }
 
 function genPlanets(){
-  G.planets=[]; G.travel=[]; G.sel=null; G.qty=0; G.over=false; G.won=false; G.time=0;
-  const N=18;
-  for(let i=0;i<N;i++){
-    let x=rr(120,U.W-120),y=rr(120,U.H-120),tries=0;
-    while(G.planets.some(p=>Math.hypot(p.x-x,p.y-y)<300)&&tries<120){ x=rr(140,U.W-140);y=rr(140,U.H-140);tries++; }
+  G.planets=[]; G.travel=[]; G.lasers=[]; G.missiles=[]; G.sel=null; G.qty=0; G.over=false; G.won=false; G.time=0;
+  // 关卡式布局: 玩家区(左下) + 敌方A区(右上) + 敌方B区(右下) + 中立连接带
+  const L=[[450,1150,1],[800,820,0],[850,1500,0],[500,500,0],[1150,1150,0],
+    [2750,650,2],[3050,950,2],[2450,420,2],[2350,1000,0],
+    [2750,1850,3],[3050,1600,3],[2450,2000,3],[2350,1450,0],
+    [1450,1000,0],[1500,1600,0],[1750,1200,0],[1850,1600,0],[1200,1720,0]];
+  for(let i=0;i<L.length;i++){ const x=L[i][0], y=L[i][1], owner=L[i][2];
     const energy=Math.round(rr(2,10)),strength=Math.round(rr(2,10)),speed=Math.round(rr(2,10)),maxHp=70+energy*22;
-    const owner=(i===0)?1:(i===1||i===2)?2:0;
     const p={ id:i,x,y,r:26+energy*3.4,owner,hp:maxHp,maxHp,energy,strength,speed,
-      prod:[],def:[],flowers:[],seedlings:[],prodT:rr(0.3,1)*BAL.prodInterval,defT:0,conv:{active:false} };
-    if(owner===1||owner===2){ const _bt=buildTree(p,-0.7); p.prod.push({ang:-0.7,order:_bt.order,tips:_bt.tips,segT:0,revealed:0,budTip:0,budT:0}); }
-    if(owner===2&&i===2) p.def.push({ang:1.1,born:G.time});
-    const startN= owner===1?16:owner===2?12:0;
-    for(let k=0;k<startN;k++) spawnSeed(p,owner===0?0:owner);
+      prod:[],def:[],flowers:[],seedlings:[],prodT:rr(0.3,1)*BAL.prodInterval,defT:0,coreT:0,conv:{active:false},bands:[26+energy*3.4+5,26+energy*3.4+9,26+energy*3.4+13,26+energy*3.4+17,26+energy*3.4+21] };
     G.planets.push(p);
   }
+  // 连通性校正
+  for(let pass=0; pass<80; pass++){ let moved=false;
+    for(let i=0;i<G.planets.length;i++){ const p=G.planets[i]; let near=null, nd=1e9;
+      for(let jj=0;jj<G.planets.length;jj++){ if(i===jj) continue; const d=Math.hypot(p.x-G.planets[jj].x,p.y-G.planets[jj].y); if(d<nd){nd=d;near=G.planets[jj];} }
+      const R=dispatchRange(p);
+      if(nd>R){ const dx=near.x-p.x, dy=near.y-p.y, d=Math.hypot(dx,dy)||1, target=R*0.85;
+        let nx=p.x+dx/d*Math.max(0,d-target), ny=p.y+dy/d*Math.max(0,d-target);
+        nx=Math.max(150,Math.min(U.W-150,nx)); ny=Math.max(150,Math.min(U.H-150,ny)); p.x=nx; p.y=ny; moved=true; } }
+    if(!moved) break;
+  }
+  // 位置定稿后建树/守卫/种子
+  for(const p of G.planets){ if(p.owner===0) continue;
+    const _bt=buildTree(p,-0.7); p.prod.push({ang:-0.7,order:_bt.order,tips:_bt.tips,segT:0,revealed:0,budTip:0,budT:0,root:makeRoot(p,-0.7)}); }
+  for(const p of G.planets){ if(p.owner===2||p.owner===3) p.def.push({ang:1.1,born:G.time,root:makeRoot(p,1.1)}); }
+  for(const p of G.planets){ const own0= p.owner===1?16:(p.owner!==0?12:0); for(let k=0;k<own0;k++) spawnSeed(p,p.owner); }
   G.lastAI=0;
 }
 function addShake(a){ G.shake=Math.max(G.shake,a); }
 function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+function makeRoot(p, ang){
+  const bx=p.x+Math.cos(ang)*p.r, by=p.y+Math.sin(ang)*p.r, cx=p.x, cy=p.y;
+  const dx=cx-bx, dy=cy-by, L=Math.hypot(dx,dy)||1, nx=-dy/L, ny=dx/L, amp=(rnd()*0.4-0.2)*L;
+  const qx=(bx+cx)/2+nx*amp, qy=(by+cy)/2+ny*amp; const pts=[];
+  for(let k=0;k<=9;k++){ const t=k/9, mt=1-t; pts.push({x:mt*mt*bx+2*mt*t*qx+t*t*cx, y:mt*mt*by+2*mt*t*qy+t*t*cy}); }
+  return pts;
+}
 function buildTree(p, ang){ const bx=p.x+Math.cos(ang)*p.r, by=p.y+Math.sin(ang)*p.r;
   const segs=[];
   function rec(x,y,a,d){ const L=BAL.treeLen0*Math.pow(BAL.treeShrink,d); const ex=x+Math.cos(a)*L, ey=y+Math.sin(a)*L;
@@ -55,9 +74,10 @@ function defDPS(p){ if(!p.def.length) return 0; return p.def.length*(BAL.defDmg+
 
 function sendFleet(from,to,count){
   const c=present(from,from.owner); if(count<=0||count>c.length) return;
-  const arr=[...c], speed=BAL.fleetSpeedBase+from.speed*BAL.fleetSpeedVar;
+  const arr=[...c];
   for(let k=0;k<count;k++){ const idx=Math.floor(rnd()*arr.length); const s=arr.splice(idx,1)[0];
-    from.seedlings.splice(from.seedlings.indexOf(s),1); G.travel.push({x:s.x,y:s.y,owner:from.owner,to,speed}); }
+    from.seedlings.splice(from.seedlings.indexOf(s),1);
+    G.travel.push({x:s.x,y:s.y,owner:from.owner,to,speed:BAL.fleetSpeedBase+s.spd*BAL.fleetSpeedVar,energy:s.energy,strength:s.strength,spd:s.spd,hp:s.hp,attack:s.attack}); }
   Sfx.spawn();
 }
 function startPlant(p,owner,kind){
@@ -75,69 +95,105 @@ function applyPlant(p){
   if(p.owner===0 && c.kind==='prod'){ // 中立星球种繁殖树=占领
     p.owner=c.owner; p.seedlings=p.seedlings.filter(s=>s.owner===c.owner); p.def=p.def.filter(()=>false); p.flowers=[]; Sfx.capture(); addShake(7);
   }
-  if(c.kind==='prod'){ const _bt=buildTree(p,c.ang); p.prod.push({ang:c.ang,order:_bt.order,tips:_bt.tips,segT:0,revealed:0,budTip:0,budT:0}); Sfx.flower(); }
-  else if(c.kind==='def') p.def.push({ang:c.ang,born:G.time});
-  else if(c.kind==='flower'){ p.flowers.push({px:c.tx,py:c.ty,seedT:BAL.flowerInterval}); Sfx.flower(); }
+  if(c.kind==='prod'){ const _bt=buildTree(p,c.ang); p.prod.push({ang:c.ang,order:_bt.order,tips:_bt.tips,segT:0,revealed:0,budTip:0,budT:0,root:makeRoot(p,c.ang)}); Sfx.flower(); }
+  else if(c.kind==='def') p.def.push({ang:c.ang,born:G.time,root:makeRoot(p,c.ang)});
   p.seedlings=p.seedlings.filter(s=>!(s.mode==='converge'&&s.owner===c.owner)); p.conv={active:false};
 }
 
 function isContested(p){ for(const s of p.seedlings){ if(s.mode==='orbit'&&s.hp>0&&s.owner!==p.owner) return true; } return false; }
 
+function moveOrbitSeed(s,p,dt,tgt){
+  const lin=Math.max(2,(s.spd||4))*BAL.orbitSpeed; // 恒定线速度(px/s)
+  if(tgt){
+    const dx=tgt.ax-s.x, dy=tgt.ay-s.y, d=Math.hypot(dx,dy)||1;
+    const ta=Math.atan2(tgt.cy-p.y,tgt.cx-p.x);
+    let da=ta-s.ang; while(da>Math.PI)da-=2*Math.PI; while(da<-Math.PI)da+=2*Math.PI;
+    const tr=Math.min(p.r+21, Math.max(p.r+5, Math.hypot(tgt.cy-p.y,tgt.cx-p.x))); // 目标半径(钳在带内)
+    if(d>BAL.combatRange){ // 目标在攻击范围外: 沿轨道绕向目标(轨迹优先, 不穿星球), 径向朝目标带收敛
+      s.weaveT=0;
+      const vr=Math.max(-lin*0.6, Math.min(lin*0.6, (tr-s.rad)*2.0));
+      const vt=Math.sqrt(Math.max(0.01, lin*lin-vr*vr));
+      s.ang += Math.sign(da)*Math.min(Math.abs(da), (vt/Math.max(1,s.rad))*dt);
+      s.rad += vr*dt;
+    } else { // 已进入攻击范围: 绕目标横向穿插保持移动(永不停)
+      s.weaveT=(s.weaveT||0)-dt; if(s.weaveT<=0){ s.weaveDir=-(s.weaveDir||1); s.weaveT=1.1; }
+      const wd=s.weaveDir||1;
+      const nx=s.x+(-dy/d*wd)*lin*dt, ny=s.y+(dx/d*wd)*lin*dt;
+      let px=nx-p.x,py=ny-p.y,rr=Math.hypot(px,py),aa=Math.atan2(py,px);
+      rr=Math.max(p.r+5,Math.min(p.r+21,rr));
+      s.ang=aa; s.rad=rr; s.x=p.x+Math.cos(s.ang)*s.rad; s.y=p.y+Math.sin(s.ang)*s.rad;
+      return;
+    }
+  } else { // 空闲: 沿本带公转(恒速), 径向缓慢回到本带
+    const nx=s.x+(-Math.sin(s.ang))*lin*dt, ny=s.y+Math.cos(s.ang)*lin*dt;
+    let px=nx-p.x,py=ny-p.y,rr=Math.hypot(px,py),aa=Math.atan2(py,px);
+    rr=Math.max(p.r+5,Math.min(p.r+21,rr));
+    const hr=s.homeR!==undefined?s.homeR:rr; rr=Math.max(p.r+5,Math.min(p.r+21, rr+(hr-rr)*Math.min(1,dt*1.5)));
+    s.ang=aa; s.rad=rr; s.x=p.x+Math.cos(s.ang)*s.rad; s.y=p.y+Math.sin(s.ang)*s.rad;
+  }
+  s.rad=Math.max(p.r+5,Math.min(p.r+21,s.rad));
+  s.x=p.x+Math.cos(s.ang)*s.rad; s.y=p.y+Math.sin(s.ang)*s.rad;
+}
+function treeAlive(p,t){ if(t.dead) return false; if(t.hp===undefined) t.hp=2*p.maxHp; return t.hp>0; }
+
+function defBall(p,d){ const by=p.r+14; return {x:p.x+Math.cos(d.ang)*by, y:p.y+Math.sin(d.ang)*by}; }
+function defAlive(p,d){ if(d.dead) return false; if(d.hp===undefined) d.hp=Math.round(p.maxHp*0.8); return d.hp>0; }
 function seekHostile(p,s,orbit){
   let best=null, bd=1e9;
-  for(const b of orbit){ if(b===s||b.owner===s.owner||b.hp<=0) continue; const d=Math.hypot(b.x-s.x,b.y-s.y);
-    if(d<bd){ bd=d; best={kind:'seed',ref:b,cx:b.x,cy:b.y,ax:b.x,ay:b.y}; } }
-  if(p.owner!==s.owner){ for(const t of p.prod){ if(t.dead) continue;
-    const ax=p.x+Math.cos(t.ang)*p.r, ay=p.y+Math.sin(t.ang)*p.r;
-    const cx=p.x+Math.cos(t.ang)*(p.r+10), cy=p.y+Math.sin(t.ang)*(p.r+10);
-    const d=Math.hypot(ax-s.x,ay-s.y); if(d<bd){ bd=d; best={kind:'tree',ref:t,cx,cy,ax,ay}; } } }
+  for(const b of orbit){ if(b===s||b.owner===s.owner||b.hp<=0) continue; const d=Math.hypot(b.x-s.x,b.y-s.y); if(d<bd){ bd=d; best={kind:'seed',ref:b,cx:b.x,cy:b.y,ax:b.x,ay:b.y}; } }
+  if(!best && p.owner!==s.owner){ for(const d of p.def){ if(!defAlive(p,d)) continue; const b=defBall(p,d); const dd=Math.hypot(b.x-s.x,b.y-s.y); if(dd<bd){ bd=dd; best={kind:'deftree',ref:d,cx:b.x,cy:b.y,ax:b.x,ay:b.y}; } } }
+  const openRoot2=(p.prod.some(t=>t.dead)||p.def.some(d=>d.dead)); // 已有可进核心的破根
+  if(!best && p.owner!==s.owner && !openRoot2){ for(const t of p.prod){ if(t.dead||!treeAlive(p,t)) continue;
+    for(let k=0;k<t.revealed;k++){ const seg=t.order[k]; if(seg.d===0) continue; const d=Math.hypot(seg.x2-s.x,seg.y2-s.y); if(d<bd){ bd=d; best={kind:'branch',ref:t,bref:seg,cx:seg.x2,cy:seg.y2,ax:seg.x2,ay:seg.y2}; } } } }
   return best;
 }
 
+
 function combatPlanet(p,dt){
   const orbit=p.seedlings.filter(s=>s.mode==='orbit');
-  const bandLo=p.r+5, bandHi=p.r+16;
-  // 轨道带内主动追击：向最近敌人/繁殖树推进，但不穿透星球、不脱离轨道带
   for(const s of orbit){ if(s.hp<=0) continue;
     const tgt=seekHostile(p,s,orbit);
-    if(tgt){
-      const ta=Math.atan2(tgt.cy-p.y,tgt.cx-p.x), tr=Math.min(bandHi,Math.max(bandLo,Math.hypot(tgt.cy-p.y,tgt.cx-p.x)));
-      let da=ta-s.ang; while(da>Math.PI)da-=2*Math.PI; while(da<-Math.PI)da+=2*Math.PI;
-      s.ang+=Math.sign(da)*Math.min(Math.abs(da), BAL.chaseAng*dt);
-      s.rad+=(tr-s.rad)*Math.min(1, dt*5);
-      s.x=p.x+Math.cos(s.ang)*s.rad; s.y=p.y+Math.sin(s.ang)*s.rad;
-      s.atkT-=dt;
+    moveOrbitSeed(s,p,dt,tgt); // 恒定线速度: 追击(战斗) 或 公转(空闲)
+    if(tgt){ s.atkT-=dt;
       if(s.atkT<=0 && Math.hypot(tgt.ax-s.x,tgt.ay-s.y)<=BAL.combatRange){
         if(tgt.kind==='seed') tgt.ref.hp-=s.attack;
-        else { if(tgt.ref.hp===undefined) tgt.ref.hp=2*p.maxHp; tgt.ref.hp-=s.attack*BAL.treeHit; if(tgt.ref.hp<=0&&!tgt.ref.dead){ tgt.ref.dead=true; tgt.ref.bx=tgt.ax; tgt.ref.by=tgt.ay; Sfx.hit(); } }
+        else if(tgt.kind==='deftree'){ tgt.ref.hp-=s.attack; if(tgt.ref.hp<=0&&!tgt.ref.dead){ tgt.ref.dead=true; Sfx.hit(); } }
+        else { tgt.ref.hp-=s.attack*BAL.treeHit; if(tgt.ref.hp<=0&&!tgt.ref.dead){ tgt.ref.dead=true; tgt.ref.bx=tgt.bref.x2; tgt.ref.by=tgt.bref.y2; Sfx.hit(); } }
         s.atkT=BAL.atkCooldown;
-        if(cam.zoom>=7) G.lasers.push({x1:s.x,y1:s.y,x2:tgt.ax,y2:tgt.ay,life:0.11,owner:s.owner});
+        if(cam.zoom>=5) G.lasers.push({x1:s.x,y1:s.y,x2:tgt.ax,y2:tgt.ay,life:0.11,owner:s.owner});
       }
     }
   }
   p.seedlings=p.seedlings.filter(s=>(s.mode!=='orbit')||s.hp>0);
   const own=p.seedlings.filter(s=>s.mode==='orbit'&&s.hp>0&&s.owner===p.owner);
   const inv=p.seedlings.filter(s=>s.mode==='orbit'&&s.hp>0&&s.owner!==p.owner);
-  // 清光守军且繁殖树皆破 → 入侵者转入核心
-  if(p.owner!==0 && inv.length>0 && own.length===0 && !p.prod.some(t=>!t.dead)){
-    const cnt={}; for(const s of inv) cnt[s.owner]=(cnt[s.owner]||0)+1; let faction=inv[0].owner;
-    for(const k in cnt) if(cnt[k]>(cnt[faction]||0)) faction=+k;
-    for(const s of inv){ if(s.owner!==faction) continue; if(s.core) continue; s.mode='converge'; s.landing=true; s.tx=p.x; s.ty=p.y; s.arr=false; s.core=true; }
+  // 清光守军且繁殖树皆破 → 核心排队: 每秒一个最近入侵者进入(其余正常公转)
+  const openRoot=(p.prod.find(t=>t.dead&&t.root)||p.def.find(d=>d.dead&&d.root)||null); // 只有树被摧毁的树根才开放
+  if(p.owner!==0 && inv.length>0 && own.length===0 && openRoot){
+    p.coreT=(p.coreT===undefined?0:p.coreT)-dt;
+    if(p.coreT<=0){ let near=null,nd=1e9; for(const s of inv){ const d=Math.hypot(s.x-p.x,s.y-p.y); if(d<nd){nd=d;near=s;} }
+      if(near){ const root=openRoot.root;
+        if(root){ near.mode='enter'; near.enter={root,idx:0,phase:'approach'}; }
+        else { near.mode='converge'; near.landing=true; near.tx=p.x; near.ty=p.y; near.arr=false; }
+        near.core=true; p.coreT=1.0; } }
   }
-  // 核心入口：收拢到中心的入侵者被销毁，伤害=它的HP
-  for(const s of p.seedlings){ if(s.core&&s.mode==='converge'&&s.arr&&Math.hypot(p.x-s.x,p.y-s.y)<7){
-    p.hp-=s.hp; s.dead2=true; Sfx.hit(); if(p.hp<=0){ capturePlanet(p,s.owner); return; } } }
+  // 核心入口: 收拢到中心的进入者被销毁, 伤害=其HP (去掉花哨光束/闪光)
+  for(const s of p.seedlings){ if(s.core&&(s.mode==='converge'||s.mode==='enter')&&s.arr&&Math.hypot(p.x-s.x,p.y-s.y)<7){
+    p.hp-=s.hp; s.dead2=true; Sfx.hit(); addShake(4);
+    if(p.hp<=0){ capturePlanet(p,s.owner); return; } } }
   p.seedlings=p.seedlings.filter(s=>!s.dead2&&((s.mode!=='orbit')||s.hp>0));
 }
 
+
 function capturePlanet(p,newOwner){
-  p.owner=newOwner; p.hp=p.maxHp;
+  p.owner=newOwner; p.hp=Math.max(1,Math.round(p.maxHp*0.4)); // 攻克后起始 40% 血, 缓慢回血
   p.seedlings=p.seedlings.filter(s=>s.owner===newOwner&&s.mode!=='converge');
-  p.prod=p.prod.filter(t=>!t.dead); p.def=p.def.filter(t=>!t.dead);
-  for(const t of p.prod){ t.hp=2*p.maxHp; t.dead=false; delete t.bx; delete t.by; }
-  for(const t of p.def){ t.hp=2*p.maxHp; t.dead=false; }
-  Sfx.capture(); G.shake=Math.max(G.shake,8);
+  for(const s of p.seedlings){ if(s.core||s.mode==='enter'){ s.mode='orbit'; s.core=false; s.enter=null; s.arr=false; } } // 易主后袍子停止入核, 转回正常公转
+    for(const t of p.prod){ if(t.dead){ t.dead=false; t.hp=2*p.maxHp; t.revealed=0; t.segT=0; t.budT=0; t.budTip=0; delete t.bx; delete t.by; } } // 存活繁殖树保留原样; 被摧毁的从树根重生长
+  for(const d of p.def){ if(d.dead){ d.dead=false; d.hp=Math.round(p.maxHp*0.8); d.grow=0; } } // 防御树保留/重生长
+  p.coreT=0; Sfx.capture(); G.shake=Math.max(G.shake,8);
 }
+
 
 function easeIO(t){ return t*t*(3-2*t); }
 function setSub(text,alert){ const el=document.getElementById('sub'); if(!el) return; el.innerHTML=text; el.className='show'+(alert?' alert':''); }
@@ -154,11 +210,13 @@ function startTutorial(){
   start.owner=0; start.seedlings=[]; start.prod=[]; start.def=[]; start.flowers=[]; start.conv={active:false};
   start.energy=6; start.strength=6; start.speed=6; start.maxHp=70+start.energy*22; start.hp=start.maxHp; start.defT=0;
   for(let k=0;k<20;k++) spawnSeed(start,1);
+  // 隔壁中立星球保持中立(新手教程不再安排弱敌星)
+
   let stage=null,bd=1e9;
   for(const p of G.planets){ if(p===start||p.owner!==0) continue; const d=Math.hypot(p.x-start.x,p.y-start.y); if(d<bd){bd=d;stage=p;} }
   if(!stage){ for(const p of G.planets){ if(p===start) continue; stage=p; break; } }
-  tutor={start,stage,phase:'plant',zoom:7,targetZoom:3.8,zoomT:0,dwell:0};
-  camLocked=true; cam.zoom=7; cam.x=start.x-innerWidth/7/2; cam.y=start.y-innerHeight/7/2;
+  tutor={start,stage,phase:'plant',zoom:5,targetZoom:2.8,zoomT:0,dwell:0};
+  camLocked=true; cam.zoom=5; cam.x=start.x-innerWidth/5/2; cam.y=start.y-innerHeight/5/2;
   setSub("你好，指挥官。我们降落到了一颗中立星球上。<br>现在请你点击星球，种植一颗繁殖树。");
 }
 function tickTutorial(dt){
@@ -179,22 +237,35 @@ function tickTutorial(dt){
     if(!battle){ tutor.phase='win'; tutor.dwell=0; setSub("我们首站告捷，现在请你独自完成征服这片星空的使命！"); } }
   else if(ph==='win'){ tutor.dwell+=dt; if(tutor.dwell>=5){ tutor.phase='unlock'; tutor.zoomT=0; } }
 }
+function separateSeeds(p){
+  const o=p.seedlings.filter(s=>s.mode==='orbit');
+  for(let pass=0; pass<6; pass++){ for(let i=0;i<o.length;i++){ for(let j=i+1;j<o.length;j++){
+    const a=o[i], b=o[j]; let dx=b.x-a.x, dy=b.y-a.y, d=Math.hypot(dx,dy);
+    if(d<BAL.seedSpace){
+      const push=(BAL.seedSpace-d)*0.5;
+      let nx, ny; if(d>1e-4){ nx=dx/d; ny=dy/d; } else { const oa=a.ang+1.6; nx=Math.cos(oa); ny=Math.sin(oa); }
+      const ax=a.x-nx*push, ay=a.y-ny*push, bx=b.x+nx*push, by=b.y+ny*push;
+      a.ang=Math.atan2(ay-p.y,ax-p.x); a.rad=Math.min(Math.max(Math.hypot(ax-p.x,ay-p.y),p.r+5),p.r+21); a.x=p.x+Math.cos(a.ang)*a.rad; a.y=p.y+Math.sin(a.ang)*a.rad;
+      b.ang=Math.atan2(by-p.y,bx-p.x); b.rad=Math.min(Math.max(Math.hypot(bx-p.x,by-p.y),p.r+5),p.r+21); b.x=p.x+Math.cos(b.ang)*b.rad; b.y=p.y+Math.sin(b.ang)*b.rad;
+    }
+  }}}
+}
+
 function update(dt){
   G.time+=dt; G.shake=Math.max(0, G.shake-dt*36);
   tickTutorial(dt);
   for(const p of G.planets){
-    if(p.owner!==0 && p.prod.length>0 && !isContested(p)){ for(const t of p.prod){
+    if(p.owner!==0 && p.prod.length>0){ for(const t of p.prod){
     if(t.dead) continue;
     if(t.revealed < t.order.length){
       t.segT += dt;
-      if(t.segT >= BAL.perSegmentTime){ t.segT=0; const seg=t.order[t.revealed]; // 每长好一根分叉→掉一颗雹子(脱落+飞)
-        G.travel.push({x:seg.x2,y:seg.y2,owner:p.owner,to:p,speed:BAL.budFlySpeed}); t.revealed++; }
+      if(t.segT >= BAL.perSegmentTime){ t.segT=0; const seg=t.order[t.revealed]; t.revealed++;
+        G.travel.push({x:seg.x2,y:seg.y2,owner:p.owner,to:p,speed:BAL.budFlySpeed}); }
     } else {
       t.budT += dt/BAL.budTime;
       if(t.budT>=1){ const tip=t.tips[t.budTip%t.tips.length]; G.travel.push({x:tip.x,y:tip.y,owner:p.owner,to:p,speed:BAL.budFlySpeed}); t.budT=0; t.budTip=(t.budTip+1)%t.tips.length; }
     } } }
-    if(p.owner!==0 && !isContested(p)){ for(const f of p.flowers){ f.seedT-=dt; if(f.seedT<=0){ spawnSeed(p,p.owner,f.px,f.py-4); f.seedT+=BAL.flowerInterval; } } }
-    // 种子运动/收拢
+        // 种子运动/收拢
     let allArr=true, cnt=0;
     for(const s of p.seedlings){
       if(s.mode==='converge'){ cnt++;
@@ -204,41 +275,76 @@ function update(dt){
           s.x=p.x+Math.cos(s.ang)*s.rad; s.y=p.y+Math.sin(s.ang)*s.rad; if(Math.abs(da)<0.09) s.landing=true; }
         else { s.ang=tA; s.rad-=BAL.convergeSpeed*dt; if(s.rad<=tR){ s.rad=tR; s.arr=true; } s.x=p.x+Math.cos(s.ang)*s.rad; s.y=p.y+Math.sin(s.ang)*s.rad; }
         if(!s.arr) allArr=false;
-      } else if(s.mode==='orbit'){ s.ang+=s.spin*dt; s.rad=Math.max(p.r+5,s.rad); s.x=p.x+Math.cos(s.ang)*s.rad; s.y=p.y+Math.sin(s.ang)*s.rad; }
+      } else if(s.mode==='orbit'){ /* 运动在 combatPlanet(moveOrbitSeed) */ }
+      else if(s.mode==='enter'){ const e=s.enter, lin=Math.max(2,(s.spd||4))*BAL.orbitSpeed;
+        if(e && e.root && e.root.length>1){
+          if(e.phase==='approach'){ const b=e.root[0], ba=Math.atan2(b.y-p.y,b.x-p.x); let da=ba-s.ang; while(da>Math.PI)da-=2*Math.PI; while(da<-Math.PI)da+=2*Math.PI;
+            const bandR=(s.homeR!==undefined?s.homeR:p.r+9);
+            s.ang+=Math.sign(da)*Math.min(Math.abs(da), (lin/Math.max(1,s.rad))*dt);
+            s.rad+=(bandR-s.rad)*Math.min(1,dt*2); s.rad=Math.max(p.r+5,Math.min(p.r+21,s.rad));
+            s.x=p.x+Math.cos(s.ang)*s.rad; s.y=p.y+Math.sin(s.ang)*s.rad;
+            if(Math.abs(da)<0.6){ e.phase='enter'; e.idx=0; } }
+          else { const tg=e.root[Math.min(e.idx,e.root.length-1)],dx=tg.x-s.x,dy=tg.y-s.y,d=Math.hypot(dx,dy)||1;
+            if(d<5){ e.idx++; if(e.idx>=e.root.length){ s.arr=true; s.rad=0; s.ang=0; s.x=p.x; s.y=p.y; } } else { s.x+=dx/d*lin*dt; s.y+=dy/d*lin*dt; } }
+          const px=s.x-p.x,py=s.y-p.y,rr=Math.hypot(px,py); s.rad=Math.max(0.1,rr); s.ang=Math.atan2(py,px); s.core=true;
+        } else { s.mode='converge'; s.landing=true; s.tx=p.x; s.ty=p.y; s.arr=false; s.core=true; } }
     }
     if(p.conv.active && cnt>=p.conv.total && allArr) applyPlant(p);
-    // 防御树射"外来"飞行/绕行种子(附近)
-    if(p.owner!==0 && p.def.length>0){ p.defT-=dt;
-      if(p.defT<=0){ const near=G.travel.find(t=>t.owner!==p.owner&&Math.hypot(t.x-p.x,t.y-p.y)<=p.r+60);
-        const invO=p.seedlings.find(s=>s.owner!==p.owner&&s.hp>0&&s.mode==='orbit'&&Math.hypot(s.x-p.x,s.y-p.y)<=p.r+60);
-        if(invO){ invO.hp-=BAL.defDmg; if(cam.zoom>=7) G.lasers.push({x1:p.x,y1:p.y,x2:invO.x,y2:invO.y,life:0.11,owner:p.owner}); Sfx.hit(); p.defT=1/(BAL.defRate+p.strength*0.04); }
-        else if(near){ G.travel.splice(G.travel.indexOf(near),1); Sfx.hit(); p.defT=1/(BAL.defRate+p.strength*0.04); } else p.defT=0.15; } }
+    // 防御树: 每棵每 missileInterval 秒发射一枚追踪导弹(全星球找最近敌人, 单体伤害=星球攻击*1.5)
+    if(p.owner!==0 && p.def.length>0){ for(const d of p.def){ if(d.dead) continue;
+      d.grow=(d.grow===undefined?0:d.grow)+dt/BAL.defTreeGrow; d.grow=Math.min(1,d.grow);
+      d.missileT=(d.missileT===undefined?1:d.missileT)-dt;
+      if(d.missileT<=0){ const b=defBall(p,d); let ene=null,ed=1e9;
+        for(const s of p.seedlings){ if(s.owner===p.owner||s.hp<=0||s.mode!=='orbit') continue; const dd=Math.hypot(s.x-b.x,s.y-b.y); if(dd<ed){ed=dd;ene=s;} }
+        if(ene){ const ma=Math.atan2(b.y-p.y,b.x-p.x), mr=Math.hypot(b.x-p.x,b.y-p.y); G.missiles.push({x:b.x,y:b.y,ang:ma,rad:mr,homeR:Math.max(p.r+5,Math.min(p.r+21,mr)),spin:0,spd:3,owner:p.owner,p,target:ene,dmg:Math.max(1,p.strength*1.5),life:10}); d.missileT=BAL.missileInterval; Sfx.shoot(); }
+        else d.missileT=0.3; } } }
     combatPlanet(p,dt);
+    separateSeeds(p);
+    if(p.owner!==0 && p.hp<p.maxHp) p.hp=Math.min(p.maxHp, p.hp+BAL.regenRate*dt); // 已占领星球缓慢回血
   }
   // 飞行种子
   for(let i=G.travel.length-1;i>=0;i--){ const t=G.travel[i],to=t.to; if(!to){G.travel.splice(i,1);continue;}
     const dx=to.x-t.x,dy=to.y-t.y,d=Math.hypot(dx,dy);
     if(d<=to.r+9){ // 到达外圈轨道带即切换绕行，到达位置=轨道半径，无跳变
       const ang=Math.atan2(t.y-to.y,t.x-to.x), rad=Math.min(Math.max(Math.hypot(t.x-to.x,t.y-to.y),to.r+5),to.r+15);
-      to.seedlings.push({x:t.x,y:t.y,ang,rad,spin:BAL.seedSpin*(0.7+rnd()*0.6)*(to.speed*0.06+0.7),owner:t.owner,mode:'orbit',tx:0,ty:0,arr:false,landing:false,energy:t.energy!==undefined?t.energy:to.energy,strength:t.strength!==undefined?t.strength:to.strength,spd:t.spd!==undefined?t.spd:to.speed,hp:t.hp!==undefined?t.hp:2*to.energy,attack:t.attack!==undefined?t.attack:to.strength,atkT:0});
+      const eband=Math.floor(rnd()*5), ehome=to.bands?to.bands[eband]:to.r+9;
+      to.seedlings.push({x:t.x,y:t.y,ang,rad,spin:BAL.seedSpin*(0.7+rnd()*0.6)*((t.spd!==undefined?t.spd:to.speed)*0.06+0.7),owner:t.owner,mode:'orbit',tx:0,ty:0,arr:false,landing:false,energy:t.energy!==undefined?t.energy:to.energy,strength:t.strength!==undefined?t.strength:to.strength,spd:t.spd!==undefined?t.spd:to.speed,hp:t.hp!==undefined?t.hp:2*to.energy,attack:t.attack!==undefined?t.attack:to.strength,atkT:0,band:eband,homeR:ehome});
       G.travel.splice(i,1);
     } else { t.x+=dx/d*t.speed*dt; t.y+=dy/d*t.speed*dt;
       // 飞行路径不穿透任何星球：进入某星球盘内则贴到其表面(顺势绕过)
       for(const pl of G.planets){ const px=t.x-pl.x, py=t.y-pl.y, pd=Math.hypot(px,py), minR=pl.r+3;
         if(pd<minR){ const nx=px/(pd||1), ny=py/(pd||1); t.x=pl.x+nx*minR; t.y=pl.y+ny*minR; } } }
   }
+  // 追踪导弹: 类袍子, 沿轨道移动(不穿透星球), 速度缓慢, 靠近命中
+  for(let i=G.missiles.length-1;i>=0;i--){ const m=G.missiles[i], tgt=m.target;
+    if(!tgt||tgt.hp<=0||tgt.mode==='converge'||tgt.mode==='enter'){ G.missiles.splice(i,1); continue; }
+    moveOrbitSeed(m, m.p, dt, {cx:tgt.x,cy:tgt.y,ax:tgt.x,ay:tgt.y});
+    const d=Math.hypot(tgt.x-m.x, tgt.y-m.y);
+    if(d<=7){ tgt.hp-=m.dmg; Sfx.hit(); if(cam.zoom>=5) G.lasers.push({x1:m.x,y1:m.y,x2:tgt.x,y2:tgt.y,life:0.09,owner:m.owner}); G.missiles.splice(i,1); continue; }
+    m.life-=dt; if(m.life<=0) G.missiles.splice(i,1);
+  }
   for(let i=G.lasers.length-1;i>=0;i--){ G.lasers[i].life-=dt; if(G.lasers[i].life<=0) G.lasers.splice(i,1); }
   G.lastAI-=dt; if(G.lastAI<=0){if(!tutor)AI(); G.lastAI=2.4;}
-  const mine=G.planets.filter(p=>p.owner===1).length, theirs=G.planets.filter(p=>p.owner===2).length;
+  const mine=G.planets.filter(p=>p.owner===1).length, theirs=G.planets.filter(p=>p.owner===2||p.owner===3).length;
   if(!tutor){ if(!mine) gameover(false); else if(!theirs) gameover(true); }
 }
-function AI(){ for(const p of G.planets.filter(q=>q.owner===2)){
-  const own=present(p,2).length;
-  if(own>28 && (p.prod.length+p.def.length)<BAL.maxTrees && !p.conv.active) startPlant(p,2,'prod');
-  const targets=G.planets.filter(q=>q.owner!==2&&q.id!==p.id&&inRange(p,q));
-  if(targets.length&&own>16){ const t=targets.sort((a,b)=>Math.hypot(a.x-p.x,a.y-p.y)-Math.hypot(b.x-p.x,b.y-p.y))[0]; sendFleet(p,t,Math.floor(own*0.5)); Sfx.shoot(); }
-  for(const t of targets){ if(t.owner!==2 && present(t,2).length>=BAL.flowerCost && !t.conv.active){ startPlant(t,2,'flower'); break; } }
-}}
+function AI(){
+  const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+  for(const fac of [2,3]){
+    for(const q of G.planets){ if(q.owner!==0) continue; const n=present(q,fac).length;
+      if(n>=BAL.treeCost && !q.conv.active){ startPlant(q,fac,'prod'); } }
+    for(const p of G.planets){ if(p.owner!==fac) continue; const own=present(p,fac).length;
+      if(own>BAL.treeCost*2 && (p.prod.length+p.def.length)<BAL.maxTrees && !p.conv.active){
+        startPlant(p,fac, (p.def.length===0 && own>BAL.treeCost*4)?'def':'prod'); }
+      if(own>BAL.treeCost*2){
+        const neut=G.planets.filter(q=>q!==p&&q.owner===0&&inRange(p,q)).sort((a,b)=>dist(p,a)-dist(p,b));
+        const ene=G.planets.filter(q=>q!==p&&(q.owner===1||(q.owner!==fac&&q.owner!==0))&&inRange(p,q)).sort((a,b)=>dist(p,a)-dist(p,b));
+        const t=neut[0]||ene[0];
+        if(t){ sendFleet(p,t,Math.min(Math.floor(own*0.3), BAL.treeCost+2)); }
+      }
+    }
+  }
+}
 function gameover(won){ G.over=true; G.won=won; addShake(12); const ov=document.getElementById('over'); ov.style.display='grid';
   ov.innerHTML='<div class="box"><h1 style="color:'+(won?'#7fe0a0':'#e07f8a')+'">'+(won?'菌毯已吞噬整片星域':'菌群被吞噬殆尽')+'</h1><p>你占据 '+G.planets.filter(p=>p.owner===1).length+' / '+G.planets.length+' 颗星球</p><button id="again">再来一局</button></div>';
   document.getElementById('again').onclick=()=>{reset();}; if(won)Sfx.win(); else Sfx.lose();
@@ -251,6 +357,8 @@ function render(){ ctx.setTransform(1,0,0,1,0,0); ctx.fillStyle='#f3f4f0'; ctx.f
   ctx.strokeStyle='rgba(120,140,150,0.12)'; for(let i=0;i<G.planets.length;i++)for(let j=i+1;j<G.planets.length;j++){const a=G.planets[i],b=G.planets[j];if(Math.hypot(a.x-b.x,a.y-b.y)<420){ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();}}
   // 飞行种子
   for(const t of G.travel){ ctx.fillStyle=OWNER[t.owner]; ctx.beginPath(); ctx.arc(t.x,t.y,2,0,7); ctx.fill(); }
+  // 追踪导弹
+  for(const m of G.missiles){ ctx.fillStyle=OWNER[m.owner]; ctx.beginPath(); ctx.arc(m.x,m.y,2.4,0,7); ctx.fill(); ctx.strokeStyle='rgba(255,200,90,0.7)'; ctx.lineWidth=1; ctx.beginPath(); ctx.arc(m.x,m.y,3.6,0,7); ctx.stroke(); }
   // 星球
   for(const p of G.planets) drawPlanet(p);
   // 派遣范围：选中星球 = 琥珀虚线大圈 + 内侧淡暖
@@ -274,22 +382,27 @@ function render(){ ctx.setTransform(1,0,0,1,0,0); ctx.fillStyle='#f3f4f0'; ctx.f
     ctx.strokeStyle='rgba(212,150,40,'+(pulse+0.35)+')'; ctx.lineWidth=2; ctx.setLineDash([5,5]); ctx.beginPath(); ctx.arc(p.x,p.y,p.r+21,0,7); ctx.stroke(); ctx.setLineDash([]);
   }
   // 战斗激光：仅拉近(zoom≥7)绘制，按攻击方阵营着色
-  if(cam.zoom>=7){ ctx.save(); ctx.lineCap='round'; ctx.lineWidth=0.6*(cam.zoom/8);
+  if(cam.zoom>=5){ ctx.save(); ctx.lineCap='round'; ctx.lineWidth=0.6*(cam.zoom/8);
     for(const l of G.lasers){ ctx.strokeStyle=LASER[l.owner]||'#e0a038'; ctx.beginPath(); ctx.moveTo(l.x1,l.y1); ctx.lineTo(l.x2,l.y2); ctx.stroke(); } ctx.restore(); }
 }
 function drawPlanet(p){ const base=OWNER[p.owner];
   const g=ctx.createRadialGradient(p.x,p.y,p.r*0.2,p.x,p.y,p.r*2.2); g.addColorStop(0,p.owner===0?'rgba(90,100,110,0.35)':hexA(base,0.35)); g.addColorStop(1,'rgba(0,0,0,0)'); ctx.fillStyle=g; ctx.beginPath(); ctx.arc(p.x,p.y,p.r*2.2,0,7); ctx.fill();
   ctx.fillStyle=base; ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,7); ctx.fill(); ctx.strokeStyle='rgba(255,255,255,0.25)'; ctx.lineWidth=1.5; ctx.stroke();
   ctx.fillStyle='rgba(255,255,255,0.12)'; for(let k=0;k<6;k++){ const a=k/6*6.283; ctx.beginPath(); ctx.arc(p.x+Math.cos(a)*p.r*0.5,p.y+Math.sin(a)*p.r*0.5,p.r*0.28,0,7); ctx.fill(); }
-  for(const s of p.seedlings){ if(s.mode!=='orbit'&&s.mode!=='converge') continue; ctx.fillStyle=s.mode==='converge'?'#fff':OWNER[s.owner]; ctx.globalAlpha=s.owner===0?0.6:1; ctx.beginPath(); ctx.arc(s.x,s.y,1.7,0,7); ctx.fill(); ctx.globalAlpha=1; }
-  for(const t of p.prod){ ctx.strokeStyle='#9fe0b0';
+  for(const s of p.seedlings){ if(s.mode!=='orbit'&&s.mode!=='converge'&&s.mode!=='enter') continue; ctx.fillStyle=s.mode==='converge'?'#fff':OWNER[s.owner]; ctx.globalAlpha=s.owner===0?0.6:1; ctx.beginPath(); ctx.arc(s.x,s.y,1.7,0,7); ctx.fill(); ctx.globalAlpha=1; }
+  for(const t of p.prod){ if(t.dead) continue; ctx.strokeStyle='#9fe0b0';
     for(let k=0;k<t.revealed;k++){ const s=t.order[k]; ctx.lineWidth=s.w; ctx.beginPath(); ctx.moveTo(s.x1,s.y1); ctx.lineTo(s.x2,s.y2); ctx.stroke(); }
     if(t.revealed<t.order.length){ const s=t.order[t.revealed], frac=clamp(t.segT/BAL.perSegmentTime,0,1);
       if(frac>0){ const ex=s.x1+(s.x2-s.x1)*frac, ey=s.y1+(s.y2-s.y1)*frac; ctx.lineWidth=s.w; ctx.beginPath(); ctx.moveTo(s.x1,s.y1); ctx.lineTo(ex,ey); ctx.stroke(); }
       // 生长前端的雹子(与飞行雹子同款小点)，跟着枝干长
       const fx=s.x1+(s.x2-s.x1)*frac, fy=s.y1+(s.y2-s.y1)*frac; ctx.fillStyle=OWNER[p.owner]; ctx.beginPath(); ctx.arc(fx,fy,2,0,7); ctx.fill(); } }
-  for(const t of p.def){ const grow=Math.min(1,(G.time-t.born)/0.4),a=t.ang; ctx.fillStyle='#cfe0ff'; ctx.beginPath(); ctx.arc(p.x+Math.cos(a)*(p.r+8*grow),p.y+Math.sin(a)*(p.r+8*grow),4*grow+1,0,7); ctx.fill(); }
-  for(const f of p.flowers){ ctx.fillStyle='#f0b0d0'; for(let k=0;k<5;k++){ const aa=k*1.25; ctx.beginPath(); ctx.ellipse(f.px+Math.cos(aa)*4,f.py+Math.sin(aa)*4,2.2,1.6,aa,0,7); ctx.fill(); } ctx.fillStyle='#fff8c0'; ctx.beginPath(); ctx.arc(f.px,f.py,2,0,7); ctx.fill(); }
+  const drawRoot=(R)=>{ if(!R||R.length<2) return; for(let k=1;k<R.length;k++){ const f=k/(R.length-1); ctx.strokeStyle='rgba(255,255,255,'+(0.85-0.5*f)+')'; ctx.lineWidth=Math.max(0.4, 2.6*(1-f)+0.5); ctx.beginPath(); ctx.moveTo(R[k-1].x,R[k-1].y); ctx.lineTo(R[k].x,R[k].y); ctx.stroke(); } };
+  for(const t of p.prod) drawRoot(t.root);
+  for(const d of p.def) drawRoot(d.root);
+  for(const d of p.def){ if(d.dead) continue; const g=Math.min(1, d.grow===undefined?0:d.grow); const bx=p.x+Math.cos(d.ang)*p.r, by=p.y+Math.sin(d.ang)*p.r; const tx=p.x+Math.cos(d.ang)*(p.r+14*g), ty=p.y+Math.sin(d.ang)*(p.r+14*g);
+    ctx.strokeStyle='#9fc6ef'; ctx.lineWidth=3*g+1; ctx.beginPath(); ctx.moveTo(bx,by); ctx.lineTo(tx,ty); ctx.stroke();
+    ctx.fillStyle='#bcd8ff'; ctx.beginPath(); ctx.arc(tx,ty,5*g+1,0,7); ctx.fill(); ctx.strokeStyle='#8fb8e8'; ctx.lineWidth=1.4; ctx.stroke(); }
+  
   // 世界保持干净，信息都在底部面板
   ctx.textAlign='start';
 }
@@ -323,9 +436,9 @@ function showPanel(p){ const el=document.getElementById('panel'); el.style.displ
     +'<span class="chip c-sp">速度 <b>'+p.speed+'</b></span></div>';
   const hp='<div class="p-hp"><span class="hp-l">生命</span><div class="hp-bar"><i style="width:'+(hpF*100)+'%;background:'+hpCol+'"></i></div><b class="hp-n">'+Math.ceil(p.hp)+'/'+p.maxHp+'</b></div>';
   const info='<div class="p-line">种子 <b>'+orbit+'</b> · 我方 <b>'+my+'</b></div>'
-    +'<div class="p-line">繁殖树×'+p.prod.length+' 防御树×'+p.def.length+' / '+BAL.maxTrees+' · 花×'+p.flowers.length+' · 范围 '+Math.round(dispatchRange(p))+'px</div>';
+    +'<div class="p-line">繁殖树×'+p.prod.length+' 防御树×'+p.def.length+' / '+BAL.maxTrees+' · 范围 '+Math.round(dispatchRange(p))+'px</div>';
   let btns='';
-  if(p.owner===1){ btns='<div class="row"><button id="b_prod">建繁殖树 '+BAL.treeCost+'</button><button id="b_def">建防御树 '+BAL.treeCost+'</button><button id="b_flower">种花 '+BAL.flowerCost+'</button></div>'
+  if(p.owner===1){ btns='<div class="row"><button id="b_prod">建繁殖树 '+BAL.treeCost+'</button><button id="b_def">建防御树 '+BAL.treeCost+'</button></div>'
     +'<div class="p-hint">派遣：点星球＋1 / 长按累加，再右键目标星球</div>'; }
   else if(p.owner===0 && my>=BAL.treeCost){ btns='<div class="row"><button id="b_prod">种繁殖树·占领 '+BAL.treeCost+'</button></div>'+'<div class="p-hint">你已派 '+my+' 颗种子在此，种繁殖树即可占领</div>'; }
   else if(p.owner===2 && my>=BAL.treeCost){ btns='<div class="p-hint">你已派 '+my+' 颗种子在此；清光守军、摧毁繁殖树并攻入核心即可占领</div>'; }
@@ -334,7 +447,6 @@ function showPanel(p){ const el=document.getElementById('panel'); el.style.displ
   if(p.owner===1){
     el.querySelector('#b_prod').onclick=()=>{ startPlant(p,1,'prod'); showPanel(p); };
     el.querySelector('#b_def').onclick=()=>{ startPlant(p,1,'def'); showPanel(p); };
-    el.querySelector('#b_flower').onclick=()=>{ startPlant(p,1,'flower'); showPanel(p); };
   } else if(p.owner===0){ const b=el.querySelector('#b_prod'); if(b) b.onclick=()=>{ startPlant(p,1,'prod'); showPanel(p); }; }
 }
 function hidePanel(){ document.getElementById('panel').style.display='none'; }
