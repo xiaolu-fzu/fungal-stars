@@ -6,7 +6,7 @@ const U={ W:3400, H:2300 }, cam={ x:0, y:0, zoom:0.5 };
 const OWNER={0:'#5a646e',1:'#5fbf8f',2:'#c95f8a',3:'#e08a3a',4:'#a06ae0'}, OWNER_NAME={0:'中立',1:'我方',2:'敌方A',3:'敌方B',4:'敌方C'};
 const LASER={0:'#9aa4ac',1:'#2ec47a',2:'#ec5c9c',3:'#f0a24a',4:'#c98ae8'};
 const BAL={ maxTrees:4, treeCost:10, prodInterval:1.8, budTime:20, perSegmentTime:10, treeDepth:5, treeSpread:0.42, treeLen0:20, treeShrink:0.6, budFlySpeed:90, flowerCost:10, flowerInterval:2.6,
-  sendRatio:0.5, seedSpin:0.6, combatRange:40, atkCooldown:2.0, seedSpace:7, orbitSpeed:4, regenRate:4, treeHp:22, chaseAng:2.0, treeHit:0.6, convergeSpeed:95, fleetSpeedBase:55, fleetSpeedVar:9,
+  sendRatio:0.5, seedSpin:0.6, combatRange:40, atkCooldown:2.0, seedSpace:7, orbitSpeed:4, regenRate:0.333, treeHp:22, chaseAng:2.0, treeHit:0.6, convergeSpeed:95, fleetSpeedBase:55, fleetSpeedVar:9,
   defDmg:1.6, defRate:1.0, missileInterval:2, missileSpeed:120, defTreeGrow:8, dispatchBase:340, dispatchPerSpeed:42 };
 const G={ planets:[], travel:[], lasers:[], missiles:[], sel:null, qty:0, shake:0, over:false, won:false, lastAI:0, time:0 };
 let rngState=0;
@@ -29,7 +29,7 @@ function genPlanets(){
     [2750,1850,3],[3050,1600,0],[2450,2000,0],[2350,1450,0],
     [1450,1000,0],[1500,1600,0],[1750,1200,0],[1850,1600,0],[1200,1720,0]];
   for(let i=0;i<L.length;i++){ const x=L[i][0], y=L[i][1], owner=L[i][2];
-    let energy=Math.round(rr(2,10)),strength=Math.round(rr(2,10)),speed=Math.round(rr(2,10)),maxHp=70+energy*22;
+    let energy=Math.round(rr(2,10)),strength=Math.round(rr(2,10)),speed=Math.round(rr(2,10)),maxHp=60+energy*18;
     if(owner===4){ energy=1; strength=1; speed=1; maxHp=50; }
     const p={ id:i,x,y,r:26+energy*3.4,owner,hp:maxHp,maxHp,energy,strength,speed,
       prod:[],def:[],flowers:[],seedlings:[],prodT:rr(0.3,1)*BAL.prodInterval,defT:0,coreT:0,conv:{active:false},bands:[26+energy*3.4+5,26+energy*3.4+9,26+energy*3.4+13,26+energy*3.4+17,26+energy*3.4+21] };
@@ -228,7 +228,7 @@ function spawnEnvaders(){
 function startTutorial(){
   const start=G.planets[0];
   start.owner=0; start.seedlings=[]; start.prod=[]; start.def=[]; start.flowers=[]; start.conv={active:false};
-  start.energy=6; start.strength=6; start.speed=6; start.maxHp=70+start.energy*22; start.hp=start.maxHp; start.defT=0;
+  start.energy=6; start.strength=6; start.speed=6; start.maxHp=60+start.energy*18; start.hp=start.maxHp; start.defT=0;
   for(let k=0;k<20;k++) spawnSeed(start,1);
   // 隔壁中立星球保持中立(新手教程不再安排弱敌星)
 
