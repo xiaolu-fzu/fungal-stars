@@ -25,8 +25,8 @@ function genPlanets(){
   G.planets=[]; G.travel=[]; G.lasers=[]; G.missiles=[]; G.sel=null; G.qty=0; G.over=false; G.won=false; G.time=0;
   // 关卡式布局: 玩家区(左下) + 敌方A区(右上) + 敌方B区(右下) + 中立连接带
   const L=[[450,1150,1],[800,820,0],[850,1500,0],[500,500,0],[1150,1150,0],[800,1150,4],
-    [2750,650,2],[3050,950,2],[2450,420,2],[2350,1000,0],
-    [2750,1850,3],[3050,1600,3],[2450,2000,3],[2350,1450,0],
+    [2750,650,2],[3050,950,0],[2450,420,0],[2350,1000,0],
+    [2750,1850,3],[3050,1600,0],[2450,2000,0],[2350,1450,0],
     [1450,1000,0],[1500,1600,0],[1750,1200,0],[1850,1600,0],[1200,1720,0]];
   for(let i=0;i<L.length;i++){ const x=L[i][0], y=L[i][1], owner=L[i][2];
     let energy=Math.round(rr(2,10)),strength=Math.round(rr(2,10)),speed=Math.round(rr(2,10)),maxHp=70+energy*22;
@@ -274,6 +274,7 @@ function separateSeeds(p){
 
 function update(dt){
   G.time+=dt; G.shake=Math.max(0, G.shake-dt*36);
+  if(holdActive) holdDur+=dt;
   tickTutorial(dt);
   for(const p of G.planets){
     if(p.owner!==0 && p.prod.length>0){ for(const t of p.prod){
@@ -358,6 +359,7 @@ function AI(){
     for(const q of G.planets){ if(q.owner!==0) continue; const n=present(q,fac).length;
       if(n>=BAL.treeCost && !q.conv.active){ startPlant(q,fac,'prod'); } }
     for(const p of G.planets){ if(p.owner!==fac) continue; const own=present(p,fac).length;
+      if(own>120){ const _n=G.planets.filter(q=>q!==p&&q.owner===0&&inRange(p,q)).sort((a,b)=>dist(p,a)-dist(p,b)); const _e=G.planets.filter(q=>q!==p&&(q.owner===1||(q.owner!==fac&&q.owner!==0))&&inRange(p,q)).sort((a,b)=>dist(p,a)-dist(p,b)); const _t=_n[0]||_e[0]; if(_t){ sendFleet(p,_t,Math.floor(own*0.5)); continue; } } // 超过120颗→派一半去中立/敌方(泄洪)
       const treeSlot=(p.prod.length+p.def.length)<BAL.maxTrees;
       const neut=G.planets.filter(q=>q!==p&&q.owner===0&&inRange(p,q)).sort((a,b)=>dist(p,a)-dist(p,b));
       const ene=G.planets.filter(q=>q!==p&&(q.owner===1||(q.owner!==fac&&q.owner!==0))&&inRange(p,q)).sort((a,b)=>dist(p,a)-dist(p,b));
@@ -375,7 +377,7 @@ function gameover(won){ G.over=true; G.won=won; addShake(12); const ov=document.
   ov.innerHTML='<div class="box"><h1 style="color:'+(won?'#7fe0a0':'#e07f8a')+'">'+(won?'菌毯已吞噬整片星域':'菌群被吞噬殆尽')+'</h1><p>你占据 '+G.planets.filter(p=>p.owner===1).length+' / '+G.planets.length+' 颗星球</p><button id="again">再来一局</button></div>';
   document.getElementById('again').onclick=()=>{reset();}; if(won)Sfx.win(); else Sfx.lose();
 }
-function reset(){ genPlanets(); startTutorial(); document.getElementById('over').style.display='none'; }
+function reset(){ holdActive=false; holdDur=0; genPlanets(); startTutorial(); document.getElementById('over').style.display='none'; }
 
 function render(){ ctx.setTransform(1,0,0,1,0,0); ctx.fillStyle='#f3f4f0'; ctx.fillRect(0,0,cv.width,cv.height);
   ctx.setTransform(dpr*cam.zoom,0,0,dpr*cam.zoom,-cam.x*dpr*cam.zoom+dpr*(Math.random()*2-1)*G.shake,-cam.y*dpr*cam.zoom+dpr*(Math.random()*2-1)*G.shake);
@@ -439,13 +441,14 @@ function pointOnPlanet(wx,wy){ return G.planets.find(p=>Math.hypot(p.x-wx,p.y-wy
 function layout(){ const sw=innerWidth,sh=innerHeight; cv.width=sw*dpr;cv.height=sh*dpr;cv.style.width=sw+'px';cv.style.height=sh+'px'; cam.zoom=Math.min(sw/U.W,sh/U.H)*0.92; cam.x=(U.W-sw/cam.zoom)/2; cam.y=(U.H-sh/cam.zoom)/2; }
 addEventListener('resize',layout);
 let tutor=null, camLocked=false;
-let drag=null, holdTimer=null, holdFired=false;
-function addQty(){ if(G.sel&&G.sel.owner===1){ const av=present(G.sel,1).length; if(G.qty<av){ G.qty++; Sfx.click(); showPanel(G.sel); } } }
+let drag=null, holdTimer=null, holdFired=false, holdActive=false, holdDur=0;
+function addQtyN(n){ if(G.sel&&G.sel.owner===1){ const av=present(G.sel,1).length; if(G.qty<av){ const add=Math.min(n, av-G.qty); G.qty+=add; Sfx.click(); showPanel(G.sel); } } }
+function addQty(){ addQtyN(1); }
 cv.addEventListener('pointerdown',e=>{ if(AC.state==='suspended')AC.resume(); if(e.button===0) e.preventDefault(); const r=cv.getBoundingClientRect(); const mx=e.clientX-r.left,my=e.clientY-r.top; const w=worldFromScreen(mx,my); const pl=pointOnPlanet(w.x,w.y); drag={mx,my,camx:cam.x,camy:cam.y,planet:pl,moved:false,button:e.button};
-  if(e.button===0&&pl&&pl===G.sel&&pl.owner===1){ holdFired=false; holdTimer=setInterval(()=>{ holdFired=true; addQty(); },90); } });
+  if(e.button===0&&pl&&pl===G.sel&&pl.owner===1){ holdActive=true; holdDur=0; holdFired=false; holdTimer=setInterval(()=>{ holdFired=true; addQtyN(Math.max(1,Math.round(1+holdDur*1.6))); },90); } });
 window.addEventListener('pointermove',e=>{ if(!drag)return; const r=cv.getBoundingClientRect(); const mx=e.clientX-r.left,my=e.clientY-r.top; if(camLocked){ drag.moved=false; return; } if(Math.hypot(mx-drag.mx,my-drag.my)>6) drag.moved=true;
   if(drag.moved&&(drag.button===0||drag.button===1)&&!drag.planet){ cam.x=drag.camx-(mx-drag.mx)/cam.zoom; cam.y=drag.camy-(my-drag.my)/cam.zoom; } });
-window.addEventListener('pointerup',e=>{ if(holdTimer){ clearInterval(holdTimer); holdTimer=null; } if(!drag)return;
+window.addEventListener('pointerup',e=>{ if(holdTimer){ clearInterval(holdTimer); holdTimer=null; holdActive=false; holdDur=0; } if(!drag)return;
   if(drag.button===0&&!drag.moved&&drag.planet&&!holdFired) handleClick(drag.planet);
   holdFired=false; drag=null; });
 function handleClick(p){ if(p===G.sel&&p.owner===1){ addQty(); return; } G.sel=p; G.qty=0; if(p.owner===1) Sfx.select(); showPanel(p); }
