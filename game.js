@@ -377,7 +377,7 @@ function gameover(won){ G.over=true; G.won=won; addShake(12); const ov=document.
   ov.innerHTML='<div class="box"><h1 style="color:'+(won?'#7fe0a0':'#e07f8a')+'">'+(won?'菌毯已吞噬整片星域':'菌群被吞噬殆尽')+'</h1><p>你占据 '+G.planets.filter(p=>p.owner===1).length+' / '+G.planets.length+' 颗星球</p><button id="again">再来一局</button></div>';
   document.getElementById('again').onclick=()=>{reset();}; if(won)Sfx.win(); else Sfx.lose();
 }
-function reset(){ holdActive=false; holdDur=0; genPlanets(); startTutorial(); document.getElementById('over').style.display='none'; }
+function reset(){ holdActive=false; holdDur=0; aiming=false; clearAim(); genPlanets(); startTutorial(); document.getElementById('over').style.display='none'; }
 
 function render(){ ctx.setTransform(1,0,0,1,0,0); ctx.fillStyle='#f3f4f0'; ctx.fillRect(0,0,cv.width,cv.height);
   ctx.setTransform(dpr*cam.zoom,0,0,dpr*cam.zoom,-cam.x*dpr*cam.zoom+dpr*(Math.random()*2-1)*G.shake,-cam.y*dpr*cam.zoom+dpr*(Math.random()*2-1)*G.shake);
@@ -400,7 +400,7 @@ function render(){ ctx.setTransform(1,0,0,1,0,0); ctx.fillStyle='#f3f4f0'; ctx.f
       const gt=ctx.createRadialGradient(q.x,q.y,q.r*0.9,q.x,q.y,q.r+21); gt.addColorStop(0,'rgba(46,168,110,0)'); gt.addColorStop(0.85,'rgba(46,168,110,0.09)'); gt.addColorStop(1,'rgba(46,168,110,0.04)'); ctx.fillStyle=gt; ctx.beginPath(); ctx.arc(q.x,q.y,q.r+21,0,7); ctx.fill();
     } else { ctx.setLineDash([3,5]); ctx.strokeStyle='rgba(140,148,156,0.4)'; ctx.lineWidth=1.6; ctx.beginPath(); ctx.arc(q.x,q.y,q.r+21,0,7); ctx.stroke(); ctx.setLineDash([]); }
   } }
-  if(G.sel&&G.qty>0){ const p=G.sel; ctx.fillStyle='rgba(212,150,40,0.95)'; ctx.font='700 14px system-ui'; ctx.textAlign='center'; ctx.fillText('×'+G.qty+' → 右键目标星', p.x, p.y-p.r-28); ctx.textAlign='start'; }
+  if(G.sel&&G.qty>0){ const p=G.sel; ctx.fillStyle='rgba(212,150,40,0.95)'; ctx.font='700 14px system-ui'; ctx.textAlign='center'; ctx.fillText('×'+G.qty+((isTouch||aiming)?' → 点目标星球派遣':' → 右键目标星'), p.x, p.y-p.r-28); ctx.textAlign='start'; }
   if(G.sel){ const p=G.sel;
     // 选中：种子带之外 柔和呼吸光晕 + 虚线环 + 星球本体亮边（不遮挡种子）
     const pulse=0.40+0.14*Math.sin(G.time*2.2);
@@ -446,13 +446,23 @@ const ptrs=new Map(); let pinch=null; // 移动端: 多指追踪 + 双指缩放�
 function stopHold(){ if(holdTimer){ clearInterval(holdTimer); holdTimer=null; } holdActive=false; holdDur=0; }
 function endPointer(e){ ptrs.delete(e.pointerId); if(ptrs.size<2) pinch=null;
   if(ptrs.size===1&&drag){ const p=[...ptrs.values()][0]; drag.mx=p.x; drag.my=p.y; drag.camx=cam.x; drag.camy=cam.y; drag.moved=true; } }
+let isTouch=false, aiming=false, aimTimer=null; // 移动端: 触屏标记 / 面板"派遣"瞄准态 / 长按派遣计时
+function clearAim(){ if(aimTimer){ clearTimeout(aimTimer); aimTimer=null; } }
+function tryDispatch(target){ // 便捷派遣: 把我方选中星的当前数量派往目标
+  if(!(target&&G.sel&&G.sel.owner===1&&G.qty>0)){ Sfx.error(); return false; }
+  if(!canReach(G.sel,target)){ Sfx.error(); return false; }
+  const n=Math.min(G.qty,present(G.sel,1).length); // 期间可能被建树等消耗, 按实际可用派遣
+  if(n<=0){ Sfx.error(); return false; }
+  sendFleet(G.sel,target,n); G.qty=0; aiming=false; Sfx.shoot(); showPanel(G.sel); return true; }
 function addQtyN(n){ if(G.sel&&G.sel.owner===1){ const av=present(G.sel,1).length; if(G.qty<av){ const add=Math.min(n, av-G.qty); G.qty+=add; Sfx.click(); showPanel(G.sel); } } }
 function addQty(){ addQtyN(1); }
 cv.addEventListener('pointerdown',e=>{ if(AC.state==='suspended')AC.resume(); if(e.button===0) e.preventDefault(); const r=cv.getBoundingClientRect(); const mx=e.clientX-r.left,my=e.clientY-r.top;
+  if(e.pointerType==='touch') isTouch=true;
   ptrs.set(e.pointerId,{x:mx,y:my});
-  if(ptrs.size>1){ stopHold(); if(drag) drag.moved=true; pinch=null; return; } // 第二指按下 → 转双指手势
+  if(ptrs.size>1){ stopHold(); clearAim(); if(drag) drag.moved=true; pinch=null; return; } // 第二指按下 → 转双指手势
   const w=worldFromScreen(mx,my); const pl=pointOnPlanet(w.x,w.y); drag={mx,my,camx:cam.x,camy:cam.y,planet:pl,moved:false,button:e.button,touch:e.pointerType==='touch'};
-  if(e.button===0&&pl&&pl===G.sel&&pl.owner===1){ holdActive=true; holdDur=0; holdFired=false; holdTimer=setInterval(()=>{ holdFired=true; addQtyN(Math.max(1,Math.round(1+holdDur*1.6))); },90); } });
+  if(e.button===0&&pl&&pl===G.sel&&pl.owner===1){ holdActive=true; holdDur=0; holdFired=false; holdTimer=setInterval(()=>{ holdFired=true; addQtyN(Math.max(1,Math.round(1+holdDur*1.6))); },90); }
+  else if(e.pointerType==='touch'&&e.button===0&&pl&&G.sel&&G.sel.owner===1&&G.qty>0&&pl!==G.sel){ clearAim(); aimTimer=setTimeout(()=>{ aimTimer=null; holdFired=true; tryDispatch(pl); },400); } }); // C · 触屏长按目标星球即派遣
 window.addEventListener('pointermove',e=>{ const r=cv.getBoundingClientRect(); const mx=e.clientX-r.left,my=e.clientY-r.top;
   if(ptrs.has(e.pointerId)) ptrs.set(e.pointerId,{x:mx,y:my});
   if(ptrs.size>=2){ // 移动端 · 双指：缩放 + 拖动
@@ -463,17 +473,24 @@ window.addEventListener('pointermove',e=>{ const r=cv.getBoundingClientRect(); c
     pinch={dist:d,mid}; if(drag) drag.moved=true; return; }
   pinch=null;
   if(!drag)return; if(camLocked){ drag.moved=false; return; } if(Math.hypot(mx-drag.mx,my-drag.my)>6) drag.moved=true;
-  if(drag.moved&&drag.touch) stopHold(); // 触屏滑动即放弃长按累加
+  if(drag.moved){ clearAim(); if(drag.touch) stopHold(); } // 滑动即取消长按派遣 / 触屏放弃长按累加
   if(drag.moved&&(drag.button===0||drag.button===1)&&(!drag.planet||drag.touch)){ cam.x=drag.camx-(mx-drag.mx)/cam.zoom; cam.y=drag.camy-(my-drag.my)/cam.zoom; } });
-window.addEventListener('pointerup',e=>{ endPointer(e); stopHold();
+window.addEventListener('pointerup',e=>{ endPointer(e); stopHold(); clearAim();
   if(ptrs.size>0){ holdFired=false; return; } // 还有手指按住 → 保留 drag 以便继续拖动
   if(!drag)return;
-  if(drag.button===0&&!drag.moved&&drag.planet&&!holdFired) handleClick(drag.planet);
+  if(drag.button===0&&!drag.moved&&!holdFired){
+    if(drag.planet) handleClick(drag.planet);
+    else if(drag.touch){ G.sel=null; G.qty=0; aiming=false; hidePanel(); } // 移动端: 点空白 = 取消选中
+  }
   holdFired=false; drag=null; });
 window.addEventListener('pointercancel',e=>{ endPointer(e); stopHold(); if(ptrs.size===0){ holdFired=false; drag=null; } }); // 触屏被系统打断(来电/手势)时清理
-function handleClick(p){ if(p===G.sel&&p.owner===1){ addQty(); return; } G.sel=p; G.qty=0; if(p.owner===1) Sfx.select(); showPanel(p); }
+function handleClick(p){
+  if(p===G.sel&&p.owner===1){ addQty(); return; } // 点已选中的我方星球: 派遣数量 +1
+  const armed=G.sel&&G.sel.owner===1&&G.qty>0;
+  if(armed&&(aiming||(isTouch&&canReach(G.sel,p)))){ if(tryDispatch(p)) return; aiming=false; return; } // A · 触屏点目标即派 / B · 瞄准态派遣(两端)
+  aiming=false; G.sel=p; G.qty=0; if(p.owner===1) Sfx.select(); showPanel(p); }
 window.addEventListener('contextmenu',e=>{ e.preventDefault(); const r=cv.getBoundingClientRect(); const w=worldFromScreen(e.clientX-r.left,e.clientY-r.top); const p=pointOnPlanet(w.x,w.y);
-  if(G.sel&&G.sel.owner===1&&G.qty>0){ if(p&&canReach(G.sel,p)){ sendFleet(G.sel,p,G.qty); G.qty=0; Sfx.shoot(); showPanel(G.sel); } else Sfx.error(); }
+  if(G.sel&&G.sel.owner===1&&G.qty>0){ const n=Math.min(G.qty,present(G.sel,1).length); if(p&&canReach(G.sel,p)&&n>0){ sendFleet(G.sel,p,n); G.qty=0; Sfx.shoot(); showPanel(G.sel); } else Sfx.error(); }
   else { G.sel=null; G.qty=0; hidePanel(); } });
 window.addEventListener('wheel',e=>{ if(camLocked) return; e.preventDefault(); const r=cv.getBoundingClientRect(); const mx=e.clientX-r.left,my=e.clientY-r.top; const b=worldFromScreen(mx,my); cam.zoom=Math.max(0.22,Math.min(8,cam.zoom*(e.deltaY<0?1.12:0.9))); const a=worldFromScreen(mx,my); cam.x+=b.x-a.x; cam.y+=b.y-a.y; },{passive:false});
 function showPanel(p){ const el=document.getElementById('panel'); el.style.display='block';
@@ -487,8 +504,9 @@ function showPanel(p){ const el=document.getElementById('panel'); el.style.displ
   const info='<div class="p-line">种子 <b>'+orbit+'</b> · 我方 <b>'+my+'</b></div>'
     +'<div class="p-line">繁殖树×'+p.prod.length+' 防御树×'+p.def.length+' / '+BAL.maxTrees+' · 范围 '+Math.round(dispatchRange(p))+'px</div>';
   let btns='';
-  if(p.owner===1){ btns='<div class="row"><button id="b_prod">建繁殖树 '+BAL.treeCost+'</button><button id="b_def">建防御树 '+BAL.treeCost+'</button></div>'
-    +'<div class="p-hint">派遣：点星球＋1 / 长按累加，再右键目标星球</div>'; }
+  if(p.owner===1){ btns='<div class="row"><button id="b_prod">建繁殖树 '+BAL.treeCost+'</button><button id="b_def">建防御树 '+BAL.treeCost+'</button>'
+      +'<button id="b_send"'+(G.qty>0?'':' disabled')+'>'+(G.qty>0?(aiming?'取消派遣':'派遣 ×'+G.qty+' →'):'派遣（先选数量）')+'</button></div>'
+    +'<div class="p-hint">'+((isTouch||aiming)?'派遣：点星球＋1 / 长按累加数量 → 点（或长按）目标星球即派':'派遣：点星球＋1 / 长按累加，再右键目标星球')+'</div>'; }
   else if(p.owner===0 && my>=BAL.treeCost){ btns='<div class="row"><button id="b_prod">种繁殖树·占领 '+BAL.treeCost+'</button></div>'+'<div class="p-hint">你已派 '+my+' 颗种子在此，种繁殖树即可占领</div>'; }
   else if(p.owner===2 && my>=BAL.treeCost){ btns='<div class="p-hint">你已派 '+my+' 颗种子在此；清光守军、摧毁繁殖树并攻入核心即可占领</div>'; }
   el.innerHTML='<div class="p-top"><span class="p-dot" style="background:'+OWNER[p.owner]+'"></span><span class="p-name">'+OWNER_NAME[p.owner]+'星球</span></div>'
@@ -496,6 +514,7 @@ function showPanel(p){ const el=document.getElementById('panel'); el.style.displ
   if(p.owner===1){
     el.querySelector('#b_prod').onclick=()=>{ startPlant(p,1,'prod'); showPanel(p); };
     el.querySelector('#b_def').onclick=()=>{ startPlant(p,1,'def'); showPanel(p); };
+    const bs=el.querySelector('#b_send'); if(bs) bs.onclick=()=>{ if(G.qty>0){ aiming=!aiming; showPanel(p); } else Sfx.error(); }; // B · 面板「派遣」= 进入/退出瞄准态
   } else if(p.owner===0){ const b=el.querySelector('#b_prod'); if(b) b.onclick=()=>{ startPlant(p,1,'prod'); showPanel(p); }; }
 }
 function hidePanel(){ document.getElementById('panel').style.display='none'; }
