@@ -442,15 +442,35 @@ function layout(){ const sw=innerWidth,sh=innerHeight; cv.width=sw*dpr;cv.height
 addEventListener('resize',layout);
 let tutor=null, camLocked=false;
 let drag=null, holdTimer=null, holdFired=false, holdActive=false, holdDur=0;
+const ptrs=new Map(); let pinch=null; // 移动端: 多指追踪 + 双指缩放状态
+function stopHold(){ if(holdTimer){ clearInterval(holdTimer); holdTimer=null; } holdActive=false; holdDur=0; }
+function endPointer(e){ ptrs.delete(e.pointerId); if(ptrs.size<2) pinch=null;
+  if(ptrs.size===1&&drag){ const p=[...ptrs.values()][0]; drag.mx=p.x; drag.my=p.y; drag.camx=cam.x; drag.camy=cam.y; drag.moved=true; } }
 function addQtyN(n){ if(G.sel&&G.sel.owner===1){ const av=present(G.sel,1).length; if(G.qty<av){ const add=Math.min(n, av-G.qty); G.qty+=add; Sfx.click(); showPanel(G.sel); } } }
 function addQty(){ addQtyN(1); }
-cv.addEventListener('pointerdown',e=>{ if(AC.state==='suspended')AC.resume(); if(e.button===0) e.preventDefault(); const r=cv.getBoundingClientRect(); const mx=e.clientX-r.left,my=e.clientY-r.top; const w=worldFromScreen(mx,my); const pl=pointOnPlanet(w.x,w.y); drag={mx,my,camx:cam.x,camy:cam.y,planet:pl,moved:false,button:e.button};
+cv.addEventListener('pointerdown',e=>{ if(AC.state==='suspended')AC.resume(); if(e.button===0) e.preventDefault(); const r=cv.getBoundingClientRect(); const mx=e.clientX-r.left,my=e.clientY-r.top;
+  ptrs.set(e.pointerId,{x:mx,y:my});
+  if(ptrs.size>1){ stopHold(); if(drag) drag.moved=true; pinch=null; return; } // 第二指按下 → 转双指手势
+  const w=worldFromScreen(mx,my); const pl=pointOnPlanet(w.x,w.y); drag={mx,my,camx:cam.x,camy:cam.y,planet:pl,moved:false,button:e.button,touch:e.pointerType==='touch'};
   if(e.button===0&&pl&&pl===G.sel&&pl.owner===1){ holdActive=true; holdDur=0; holdFired=false; holdTimer=setInterval(()=>{ holdFired=true; addQtyN(Math.max(1,Math.round(1+holdDur*1.6))); },90); } });
-window.addEventListener('pointermove',e=>{ if(!drag)return; const r=cv.getBoundingClientRect(); const mx=e.clientX-r.left,my=e.clientY-r.top; if(camLocked){ drag.moved=false; return; } if(Math.hypot(mx-drag.mx,my-drag.my)>6) drag.moved=true;
-  if(drag.moved&&(drag.button===0||drag.button===1)&&!drag.planet){ cam.x=drag.camx-(mx-drag.mx)/cam.zoom; cam.y=drag.camy-(my-drag.my)/cam.zoom; } });
-window.addEventListener('pointerup',e=>{ if(holdTimer){ clearInterval(holdTimer); holdTimer=null; holdActive=false; holdDur=0; } if(!drag)return;
+window.addEventListener('pointermove',e=>{ const r=cv.getBoundingClientRect(); const mx=e.clientX-r.left,my=e.clientY-r.top;
+  if(ptrs.has(e.pointerId)) ptrs.set(e.pointerId,{x:mx,y:my});
+  if(ptrs.size>=2){ // 移动端 · 双指：缩放 + 拖动
+    if(camLocked) return; const a=[...ptrs.values()], p1=a[0], p2=a[1];
+    const d=Math.hypot(p1.x-p2.x,p1.y-p2.y)||1, mid={x:(p1.x+p2.x)/2,y:(p1.y+p2.y)/2};
+    if(pinch){ const b=worldFromScreen(pinch.mid.x,pinch.mid.y); cam.zoom=clamp(cam.zoom*(d/pinch.dist),0.22,8); const a2=worldFromScreen(pinch.mid.x,pinch.mid.y);
+      cam.x+=b.x-a2.x; cam.y+=b.y-a2.y; cam.x-=(mid.x-pinch.mid.x)/cam.zoom; cam.y-=(mid.y-pinch.mid.y)/cam.zoom; }
+    pinch={dist:d,mid}; if(drag) drag.moved=true; return; }
+  pinch=null;
+  if(!drag)return; if(camLocked){ drag.moved=false; return; } if(Math.hypot(mx-drag.mx,my-drag.my)>6) drag.moved=true;
+  if(drag.moved&&drag.touch) stopHold(); // 触屏滑动即放弃长按累加
+  if(drag.moved&&(drag.button===0||drag.button===1)&&(!drag.planet||drag.touch)){ cam.x=drag.camx-(mx-drag.mx)/cam.zoom; cam.y=drag.camy-(my-drag.my)/cam.zoom; } });
+window.addEventListener('pointerup',e=>{ endPointer(e); stopHold();
+  if(ptrs.size>0){ holdFired=false; return; } // 还有手指按住 → 保留 drag 以便继续拖动
+  if(!drag)return;
   if(drag.button===0&&!drag.moved&&drag.planet&&!holdFired) handleClick(drag.planet);
   holdFired=false; drag=null; });
+window.addEventListener('pointercancel',e=>{ endPointer(e); stopHold(); if(ptrs.size===0){ holdFired=false; drag=null; } }); // 触屏被系统打断(来电/手势)时清理
 function handleClick(p){ if(p===G.sel&&p.owner===1){ addQty(); return; } G.sel=p; G.qty=0; if(p.owner===1) Sfx.select(); showPanel(p); }
 window.addEventListener('contextmenu',e=>{ e.preventDefault(); const r=cv.getBoundingClientRect(); const w=worldFromScreen(e.clientX-r.left,e.clientY-r.top); const p=pointOnPlanet(w.x,w.y);
   if(G.sel&&G.sel.owner===1&&G.qty>0){ if(p&&canReach(G.sel,p)){ sendFleet(G.sel,p,G.qty); G.qty=0; Sfx.shoot(); showPanel(G.sel); } else Sfx.error(); }
