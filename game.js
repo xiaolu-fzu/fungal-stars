@@ -235,7 +235,7 @@ function startTutorial(){
   let stage=null,bd=1e9;
   for(const p of G.planets){ if(p===start||p.owner!==0) continue; const d=Math.hypot(p.x-start.x,p.y-start.y); if(d<bd){bd=d;stage=p;} }
   if(!stage){ for(const p of G.planets){ if(p===start) continue; stage=p; break; } }
-  tutor={start,stage,phase:'plant',zoom:5,targetZoom:2.8,zoomT:0,dwell:0};
+  tutor={start,stage,phase:'plant',zoom:5,targetZoom:2.2,zoomT:0,dwell:0};
   camLocked=true; cam.zoom=5; cam.x=start.x-innerWidth/5/2; cam.y=start.y-innerHeight/5/2;
   setSub("你好，指挥官。我们降落到了一颗中立星球上。<br>现在请你点击星球，种植一颗繁殖树。");
 }
@@ -243,8 +243,8 @@ function tickTutorial(dt){
   if(!tutor) return;
   const s=tutor.start, sw=innerWidth, sh=innerHeight;
   if(tutor.phase==='unlock'){
-    tutor.zoomT+=dt; const t=Math.min(1,tutor.zoomT/3.6); const e=easeIO(t); cam.zoom=tutor.zoom+(tutor.targetZoom-tutor.zoom)*e; // 慢慢拉远
-    cam.x=(s.x+(U.W/2-s.x)*e)-sw/cam.zoom/2; cam.y=(s.y+(U.H/2-s.y)*e)-sh/cam.zoom/2; // 顺势把镜头移到整图中心
+    tutor.zoomT+=dt; const t=Math.min(1,tutor.zoomT/3.6); cam.zoom=tutor.zoom+(tutor.targetZoom-tutor.zoom)*easeIO(t); // 慢慢拉远
+    cam.x=s.x-sw/cam.zoom/2; cam.y=s.y-sh/cam.zoom/2; // 保持以母星为中心(不拉到全星域)
     if(t>=1){ tutor.postT=(tutor.postT||0)+dt; if(tutor.postT>=1.6){ camLocked=false; tutor=null; hideSub(); return; } }
   } else {
     cam.zoom=tutor.zoom; cam.x=s.x-sw/cam.zoom/2; cam.y=s.y-sh/cam.zoom/2;
@@ -254,7 +254,7 @@ function tickTutorial(dt){
   else if(ph==='wait'){ tutor.dwell+=dt; if(tutor.dwell>=5){ tutor.phase='enemy'; spawnEnvaders(); setSub("！！敌人来袭！！",true); } } // 5 秒后来袭
   else if(ph==='enemy'){ const battle=s.seedlings.some(x=>x.owner===2&&x.hp>0)||G.travel.some(x=>x.owner===2&&x.to===s);
     if(!battle){ tutor.phase='won'; tutor.dwell=0; setSub("首战告捷，指挥官！这片星域，等你征服。<br>（鼠标滚轮缩放就可以看到啦！）"); } } // 消灭敌人 → 先弹字幕
-  else if(ph==='won'){ tutor.dwell+=dt; if(tutor.dwell>=2.0){ tutor.phase='unlock'; tutor.zoomT=0; tutor.targetZoom=Math.min(sw/U.W,sh/U.H)*0.92; } } // 字幕读过 → 才开始慢慢拉远
+  else if(ph==='won'){ tutor.dwell+=dt; if(tutor.dwell>=2.0){ tutor.phase='unlock'; tutor.zoomT=0; tutor.targetZoom=2.2; } } // 字幕读过 → 才慢慢拉远(结束档位 2.2)
 }
 function separateSeeds(p){
   const o=p.seedlings.filter(s=>s.mode==='orbit');
