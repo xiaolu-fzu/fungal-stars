@@ -235,7 +235,7 @@ function startTutorial(){
   let stage=null,bd=1e9;
   for(const p of G.planets){ if(p===start||p.owner!==0) continue; const d=Math.hypot(p.x-start.x,p.y-start.y); if(d<bd){bd=d;stage=p;} }
   if(!stage){ for(const p of G.planets){ if(p===start) continue; stage=p; break; } }
-  tutor={start,stage,phase:'plant',zoom:5,targetZoom:1.0,zoomT:0,dwell:0};
+  tutor={start,stage,phase:'plant',zoom:5,targetZoom:0.8,zoomT:0,dwell:0};
   camLocked=true; cam.zoom=5; cam.x=start.x-innerWidth/5/2; cam.y=start.y-innerHeight/5/2;
   setSub("你好，指挥官。我们降落到了一颗中立星球上。<br>现在请你点击星球，种植一颗繁殖树。");
 }
@@ -254,7 +254,7 @@ function tickTutorial(dt){
   else if(ph==='wait'){ tutor.dwell+=dt; if(tutor.dwell>=5){ tutor.phase='enemy'; spawnEnvaders(); setSub("！！敌人来袭！！",true); } } // 5 秒后来袭
   else if(ph==='enemy'){ const battle=s.seedlings.some(x=>x.owner===2&&x.hp>0)||G.travel.some(x=>x.owner===2&&x.to===s);
     if(!battle){ tutor.phase='won'; tutor.dwell=0; setSub("首战告捷，指挥官！这片星域，等你征服。<br>（鼠标滚轮缩放就可以看到啦！）"); } } // 消灭敌人 → 先弹字幕
-  else if(ph==='won'){ tutor.dwell+=dt; if(tutor.dwell>=2.0){ tutor.phase='unlock'; tutor.zoomT=0; tutor.targetZoom=1.0; } } // 字幕读过 → 才慢慢拉远(结束档位 1.0)
+  else if(ph==='won'){ tutor.dwell+=dt; if(tutor.dwell>=2.0){ tutor.phase='unlock'; tutor.zoomT=0; tutor.targetZoom=0.8; } } // 字幕读过 → 才慢慢拉远(结束档位 0.8)
 }
 function separateSeeds(p){
   const o=p.seedlings.filter(s=>s.mode==='orbit');
