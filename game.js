@@ -116,7 +116,7 @@ function applyPlant(p){
   }
   if(c.kind==='prod'){ const _bt=buildTree(p,c.ang); p.prod.push({ang:c.ang,order:_bt.order,tips:_bt.tips,segT:0,revealed:0,budTip:0,budT:0,root:makeRoot(p,c.ang)}); Sfx.flower(); }
   else if(c.kind==='def') p.def.push({ang:c.ang,born:G.time,root:makeRoot(p,c.ang)});
-  p.seedlings=p.seedlings.filter(s=>!(s.mode==='converge'&&s.owner===c.owner)); p.conv={active:false};
+  p.seedlings=p.seedlings.filter(s=>!(s.mode==='converge'&&s.owner===c.owner)); p.conv={active:false}; if(G.sel===p) showPanel(p);
 }
 
 function isContested(p){ for(const s of p.seedlings){ if(s.mode==='orbit'&&s.hp>0&&s.owner!==p.owner) return true; } return false; }
@@ -211,7 +211,7 @@ function capturePlanet(p,newOwner){
   for(const s of p.seedlings){ if(s.core||s.mode==='enter'){ s.mode='orbit'; s.core=false; s.enter=null; s.arr=false; } } // 易主后袍子停止入核, 转回正常公转
     for(const t of p.prod){ if(t.dead){ t.dead=false; t.hp=2*p.maxHp; t.revealed=0; t.segT=0; t.budT=0; t.budTip=0; delete t.bx; delete t.by; } } // 存活繁殖树保留原样; 被摧毁的从树根重生长
   for(const d of p.def){ if(d.dead){ d.dead=false; d.hp=Math.round(p.maxHp*0.8); d.grow=0; } } // 防御树保留/重生长
-  p.coreT=0; Sfx.capture(); G.shake=Math.max(G.shake,8);
+  p.coreT=0; Sfx.capture(); G.shake=Math.max(G.shake,8); if(G.sel===p) showPanel(p);
 }
 
 
@@ -229,7 +229,7 @@ function startTutorial(){
   const start=G.planets[0];
   start.owner=0; start.seedlings=[]; start.prod=[]; start.def=[]; start.flowers=[]; start.conv={active:false};
   start.energy=6; start.strength=6; start.speed=6; start.maxHp=60+start.energy*18; start.hp=start.maxHp; start.defT=0;
-  for(let k=0;k<20;k++) spawnSeed(start,1);
+  for(let k=0;k<30;k++) spawnSeed(start,1); // 初始种子 30
   // 隔壁中立星球保持中立(新手教程不再安排弱敌星)
 
   let stage=null,bd=1e9;
@@ -243,20 +243,18 @@ function tickTutorial(dt){
   if(!tutor) return;
   const s=tutor.start, sw=innerWidth, sh=innerHeight;
   if(tutor.phase==='unlock'){
-    tutor.zoomT+=dt; const t=Math.min(1,tutor.zoomT/3.4); cam.zoom=tutor.zoom+(tutor.targetZoom-tutor.zoom)*easeIO(t);
-    cam.x=s.x-sw/cam.zoom/2; cam.y=s.y-sh/cam.zoom/2;
-    if(t>=1){ if(!tutor.sub3){ tutor.sub3=true; tutor.postT=0; setSub("看啊，指挥官，我们大本营附近似乎有个很弱小的敌人。<br>消灭它！（鼠标滚轮缩放就可以看到啦！）"); }
-      else { tutor.postT+=dt; if(tutor.postT>=3.5){ camLocked=false; tutor=null; hideSub(); return; } } }
+    tutor.zoomT+=dt; const t=Math.min(1,tutor.zoomT/3.6); const e=easeIO(t); cam.zoom=tutor.zoom+(tutor.targetZoom-tutor.zoom)*e; // 慢慢拉远
+    cam.x=(s.x+(U.W/2-s.x)*e)-sw/cam.zoom/2; cam.y=(s.y+(U.H/2-s.y)*e)-sh/cam.zoom/2; // 顺势把镜头移到整图中心
+    if(t>=1){ tutor.postT=(tutor.postT||0)+dt; if(tutor.postT>=1.6){ camLocked=false; tutor=null; hideSub(); return; } }
   } else {
     cam.zoom=tutor.zoom; cam.x=s.x-sw/cam.zoom/2; cam.y=s.y-sh/cam.zoom/2;
   }
   const ph=tutor.phase;
-  if(ph==='plant'){ if(s.owner===1){ tutor.phase='grow'; setSub("已占领这颗中立星球！繁殖树正在生长…"); } }
-  else if(ph==='grow'){ if(s.prod.length && s.prod.some(t=>t.revealed>=1)){ tutor.phase='spore'; tutor.dwell=0; setSub("繁殖树会为你提供袍子。<br>种植一颗繁殖树需要10个袍子。"); } }
-  else if(ph==='spore'){ tutor.dwell+=dt; if(tutor.dwell>=4){ tutor.phase='enemy'; setSub("！！敌人来袭！！",true); spawnEnvaders(); } }
+  if(ph==='plant'){ if(s.owner===1){ tutor.phase='wait'; tutor.dwell=0; setSub("已占领这颗中立星球！繁殖树正在生长…"); } } // 种完树
+  else if(ph==='wait'){ tutor.dwell+=dt; if(tutor.dwell>=5){ tutor.phase='enemy'; spawnEnvaders(); setSub("！！敌人来袭！！",true); } } // 5 秒后来袭
   else if(ph==='enemy'){ const battle=s.seedlings.some(x=>x.owner===2&&x.hp>0)||G.travel.some(x=>x.owner===2&&x.to===s);
-    if(!battle){ tutor.phase='win'; tutor.dwell=0; setSub("我们首站告捷，现在请你独自完成征服这片星空的使命！"); } }
-  else if(ph==='win'){ tutor.dwell+=dt; if(tutor.dwell>=4){ tutor.phase='unlock'; tutor.zoomT=0; } }
+    if(!battle){ tutor.phase='won'; tutor.dwell=0; setSub("首战告捷，指挥官！这片星域，等你征服。<br>（鼠标滚轮缩放就可以看到啦！）"); } } // 消灭敌人 → 先弹字幕
+  else if(ph==='won'){ tutor.dwell+=dt; if(tutor.dwell>=2.0){ tutor.phase='unlock'; tutor.zoomT=0; tutor.targetZoom=Math.min(sw/U.W,sh/U.H)*0.92; } } // 字幕读过 → 才开始慢慢拉远
 }
 function separateSeeds(p){
   const o=p.seedlings.filter(s=>s.mode==='orbit');
